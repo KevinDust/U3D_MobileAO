@@ -37,6 +37,11 @@ public class PostEffect_AO : MonoBehaviour
     public int stepNum = 10;
     [Range(0, 100)]
     public float radiusHBAO = 1;
+    [Range(0, 1)]
+    public float intensityHBAO = 1;	//ao亮度
+
+    public float minDepthHBAO = 0.3f;
+
     [Range(0, 2)]
     public float biasHBAO = 0.3f;    //减少self shadowing
     [Range(1, 10)]
@@ -124,6 +129,8 @@ public class PostEffect_AO : MonoBehaviour
                 _curAOMat.SetMatrix("Matrix_P", (_cam.projectionMatrix));
                 _curAOMat.SetInt("_ArrayNum", 16);
                 _curAOMat.SetVectorArray("_SampleDirArray", sampleDirs_HBAO);
+                _curAOMat.SetFloat("_Intensity", intensityHBAO);
+                _curAOMat.SetFloat("_MinDepth", minDepthHBAO);
 
                 Graphics.Blit(source, destination, _curAOMat);
 
