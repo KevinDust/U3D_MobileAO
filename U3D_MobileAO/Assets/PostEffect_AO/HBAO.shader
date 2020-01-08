@@ -47,10 +47,13 @@
             int _ArrayNum;
             float4 _SampleDirArray[50];
             
+
             int _StepNum;
-            float _Radius;
+			float _StepRadius;
+			float _Radius;
             float _NoiseScale;
             float _Bias;    //减少self shadowing
+			float _Bias2;
             float _MinDepth;
             float _Attenuation; //衰减系数
             float _Intensity;   //强度系数
@@ -58,14 +61,14 @@
             
             float2 snapUVToCenter(float2 uv){
 				return uv;
-				float2 screenUV = floor(uv *float2(_ScreenParams.x, _ScreenParams.y)) +float2(0.5, -0.5);
+				float2 screenUV = floor(uv *float2(_ScreenParams.x, _ScreenParams.y)) +float2(0.5, 0.5);
                 return screenUV * float2(1/_ScreenParams.x, 1/_ScreenParams.y);
             }
             
             
 
             float weight(float diff){
-                return (1.0-pow(diff, _Attenuation));
+                return max(0,1.0-pow(diff, _Attenuation));	//diff 过大 会直接变0
             }
 
             float3 depthToView(float viewD, float2 uv) {
@@ -115,7 +118,7 @@
             {
                 float3 V1 = Pr - P;
                 float3 V2 = P - Pl;
-                return length(V1) > length(V2) ? V1 : V2;
+                return length(V1) < length(V2) ? V1 : V2;	//偏向短的一边，这样可以消除深度大造成的描边
                 //return (V1+V2)/2;
             }
             
@@ -142,44 +145,45 @@
                 float ao = 0;
                 //view space
                 //圆采样的 方向 按固定方向 + jitter
-                float2 sampleDir_V = normalize(sampleDir);
+				float2 sampleDir_V = normalize(sampleDir);
                 //(float4(sampleDir_V0.xy,viewDepth,1)-float4(sampleDir_V1.xy,viewDepth,1)) * 2Near/(r-l) = (float4(uvoffset0*viewDepth,?,viewDepth) - float4(uvoffset1*viewDepth,?,viewDepth));
                 //sampleDir_V * Radius * 2Near/(r-l)【常量】 = uvOffset * viewDepth; 
-                //sampleDir_V * _Radius = uvOffset * viewDepth;
+                //sampleDir_V * _StepRadius = uvOffset * viewDepth;
                 
                 //根据radius 计算 step size；
-                float2 stepSizeView = sampleDir_V*_Radius/_StepNum;
+                float2 stepSizeView = sampleDir_V* _StepRadius /_StepNum;
                 //转到ndc ：
-                float2 stepSize = float2(stepSizeView.x * Matrix_P[0][0],stepSizeView.y * Matrix_P[1][1])/viewDepth;
+				float2 stepSize = float2(stepSizeView.x * Matrix_P[0][0], stepSizeView.y * Matrix_P[1][1]) *_ProjectionParams.w*_Radius;	//不能这样转
                                 
-                
-                float3 T = normalize(sampleDir_V.x * dPdu + sampleDir_V.y * dpdv);
-                float sinT = (T.z+_Bias)/length(T); 
-				//return (T.z)<_MinDepth ?1:0;
-				//return sinT;
+				float3 vnormal = normalize(cross(dPdu, dpdv));
+                float3 T = normalize(sampleDir_V.x * dPdu + sampleDir_V.y * dpdv + _Bias*vnormal);
+                float sinT = T.z/length(T);
 				float lastSinH = sinT;
                 //raymarch
-                for(int s =1;s<_StepNum;s++){
+                for(int s =1;s<=_StepNum;s++){
                     //snapUV
                     
-					float2 offsetUV = snapUVToCenter(uv + stepSize * s);
+					float2 uv_s = snapUVToCenter(uv + stepSize * s);
                     //float4 depthnormal_Si = tex2D(_CameraDepthNormalsTexture, offsetUV);
-                    float depth_Si = GetDepth(offsetUV);
-  
+                    float depth_Si = GetDepth(uv_s);
+
                     //Phi = H - T
                     //cos(Phi)dPhi  = sinPHI0-sinPHI1 = sin(H0-T) - sin(H1-T) =sin(H0)-sin(T) - (sin(H1)-sin(T)) = sin(H0)-sin(H1)    //cos～=1
-                    float3 H = float3(stepSizeView.x*s,stepSizeView.y*s,viewDepth - depth_Si);
-					float sinH = (viewDepth - depth_Si) / length(H);
-                    //return weight(length(H)/_Radius); 
-                    if (sinH > lastSinH) {
-						ao += (sinH - lastSinH) *weight(length(H) / _Radius);// *(lastSinH < (_MinDepth + _Bias) ? 0 : 1);
+                    float3 H = float3(stepSizeView.x*s,stepSizeView.y*s,(viewDepth - depth_Si));
+					float sinH = (viewDepth - depth_Si) / length(H);// -_Bias2;
+
+					float3 temp = normalize(H);
+					sinH = temp.z / length(temp);
+					return sinH;
+					return sinH-0.1 > sinT ? 1 : 0;
+                    //return weight(length(H)/_StepRadius); 
+                    if (sinH - _Bias2 > lastSinH) {
+						ao += (sinH - lastSinH) *weight(length(H) / _StepRadius);// *(lastSinH < (_MinDepth + _Bias) ? 0 : 1);
                         lastSinH = sinH;
                     }
-                    //return length(H)>1?1:0;
-					return ao;
-
+					//return ao;
                 }   
-                return ao;    
+                return ao;
             }
            
             
@@ -187,16 +191,18 @@
             {
                 float4 col = tex2D(_MainTex, i.uv);
                 //Ndc
-                float4 depthnormal = tex2D(_CameraDepthNormalsTexture, i.uv);
-                float3 viewNorm;
-                float viewDepth;
-                DecodeDepthNormal(depthnormal, viewDepth, viewNorm);
-                //viewSpace 的Depth
-                
-                
-                viewDepth *= _ProjectionParams.z;       //camera的farplane
+                //float4 depthnormal = tex2D(_CameraDepthNormalsTexture, i.uv);
+                //float3 viewNorm;
+                //float viewDepth;
+                //DecodeDepthNormal(depthnormal, viewDepth, viewNorm);
+                ////viewSpace 的Depth
+                //viewDepth *= _ProjectionParams.z;       //camera的farplane
+
+				float viewDepth = GetDepth(i.uv);
+
+
                 float3 viewPos = depthToView(viewDepth, i.uv);
-                
+				//return float4(viewPos, 1);
                 //test                   
                 viewPos = GetViewByUV2(i.uv);
                 
@@ -209,28 +215,23 @@
                 float3 viewPos_t = GetViewByUV2(i.uv + float2(0,screenDelta.y));
                 float3 viewPos_b = GetViewByUV2(i.uv + float2(0,-screenDelta.y));
                 
-                float3 dPdu = (MinDiff(viewPos, viewPos_r, viewPos_l));
-                dPdu = self_DDX(viewPos,i.uv);
+                float3 dPdu = normalize(MinDiff(viewPos, viewPos_r, viewPos_l));
+                //dPdu = self_DDX(viewPos,i.uv);
                 //dPdu = (ddx(viewPos));
 
                 
-                float3 dPdv = (MinDiff(viewPos, viewPos_t, viewPos_b) * (_ScreenParams.y * screenDelta.x));
-                dPdv = self_DDY(viewPos,i.uv);
+                float3 dPdv = normalize(MinDiff(viewPos, viewPos_t, viewPos_b) * (_ScreenParams.y * screenDelta.x));
+                //dPdv = self_DDY(viewPos,i.uv);
                 //dPdv = (ddy(viewPos));
                 
-               
-                
-                viewDepth = GetDepth(i.uv);
-                
-                
-                float scale = _Radius/ viewDepth;
+                float scale = _StepRadius/ viewDepth;
                 float ao = 0;
                 for (int n = 0; n < _SampleNum/2; n++) {
-                    ao+=raymarchAO(_SampleDirArray[1].xy,scale,i.uv, dPdu, dPdv, viewDepth);
+                    ao+=raymarchAO(_SampleDirArray[n].xy,scale,i.uv, dPdu, dPdv, viewDepth);
 					return ao;
 					ao+=raymarchAO(_SampleDirArray[n].zw,scale,i.uv, dPdu, dPdv, viewDepth);
                 }
-                col.rgb = (1 - pow(ao/_SampleNum, 1)*10*_Intensity);
+				col.rgb = (1 - pow(ao / _SampleNum, 1));// *10 * _Intensity);
                 return col;
             }
             ENDCG

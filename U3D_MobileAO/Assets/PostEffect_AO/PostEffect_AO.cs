@@ -35,8 +35,11 @@ public class PostEffect_AO : MonoBehaviour
     [Header("------HBAO------")]
     [Range(1, 30)]
     public int stepNum = 10;
-    [Range(0, 100)]
     public float radiusHBAO = 1;
+
+    [Range(0, 1)]
+    public float stepRadiusHBAO = 1;
+
     [Range(0, 1)]
     public float intensityHBAO = 1;	//ao亮度
 
@@ -44,7 +47,11 @@ public class PostEffect_AO : MonoBehaviour
 
     [Range(0, 2)]
     public float biasHBAO = 0.3f;    //减少self shadowing
-    [Range(1, 10)]
+
+    [Range(0, 2)]
+    public float bias2HBAO = 0.5f;
+
+[Range(1, 10)]
     public float attenuationHBAO = 2; //衰减系数
 
 
@@ -119,10 +126,14 @@ public class PostEffect_AO : MonoBehaviour
             case AOType.HBAO:
 
                 _curAOMat.SetInt("_StepNum", stepNum);
+                _curAOMat.SetFloat("_StepRadius", stepRadiusHBAO);
+
                 _curAOMat.SetFloat("_Radius", radiusHBAO);
                 _curAOMat.SetFloat("_Bias", biasHBAO);
-                _curAOMat.SetFloat("_Attenuation", attenuationHBAO);
 
+                _curAOMat.SetFloat("_Bias2", bias2HBAO);
+
+                _curAOMat.SetFloat("_Attenuation", attenuationHBAO);
                 Matrix4x4 P = GL.GetGPUProjectionMatrix(_cam.projectionMatrix, false);
 
                 _curAOMat.SetMatrix("Matrix_I_P", P.inverse);
