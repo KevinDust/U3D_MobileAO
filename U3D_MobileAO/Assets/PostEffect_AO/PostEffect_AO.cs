@@ -40,10 +40,11 @@ public class PostEffect_AO : MonoBehaviour
     [Range(0, 1)]
     public float stepRadiusHBAO = 1;
 
-    [Range(0, 1)]
+    [Range(0, 2)]
     public float intensityHBAO = 1;	//ao亮度
 
-    public float minDepthHBAO = 0.3f;
+    [Range(1, 5)]
+    public int minStepPixelNumHBAO =1;
 
     [Range(0, 2)]
     public float biasHBAO = 0.3f;    //减少self shadowing
@@ -67,6 +68,7 @@ public class PostEffect_AO : MonoBehaviour
     private void OnEnable()
     {
         _cam = Camera.main;
+        sampleDirs_HBAO = null;
         InitAOData();
         oldType = _AOType;
     }
@@ -102,7 +104,8 @@ public class PostEffect_AO : MonoBehaviour
             oldType = _AOType;
         }
     }
-
+    public Transform Light;
+    public Color aoColor;
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         _curAOMat.SetFloat("_Intensity", intensity);
@@ -138,11 +141,17 @@ public class PostEffect_AO : MonoBehaviour
 
                 _curAOMat.SetMatrix("Matrix_I_P", P.inverse);
                 _curAOMat.SetMatrix("Matrix_P", (_cam.projectionMatrix));
-                _curAOMat.SetInt("_ArrayNum", 16);
+                _curAOMat.SetInt("_ArrayNum", sampleDirs_HBAO.Length);
                 _curAOMat.SetVectorArray("_SampleDirArray", sampleDirs_HBAO);
                 _curAOMat.SetFloat("_Intensity", intensityHBAO);
-                _curAOMat.SetFloat("_MinDepth", minDepthHBAO);
-
+                _curAOMat.SetFloat("_MinStepPixelNum", minStepPixelNumHBAO);
+                Vector3 lightDir = Vector3.one;
+                if (Light != null)
+                {
+                    lightDir = _cam.worldToCameraMatrix.MultiplyVector(Light.forward);
+                }
+                _curAOMat.SetVector("_ViewLightDir", lightDir);
+                _curAOMat.SetColor("_AOColor", aoColor);
                 Graphics.Blit(source, destination, _curAOMat);
 
                 break;
@@ -168,7 +177,7 @@ public class PostEffect_AO : MonoBehaviour
     private Vector4[] sampleDirs_HBAO = null;
     private void GenerateSampleDir_HBAO()
     {
-        if (sampleDirs_HBAO != null && sampleDirs_HBAO.Length>0 && sampleDirs_HBAO[0] != Vector4.zero)
+        if ((sampleDirs_HBAO != null && sampleDirs_HBAO.Length>0 && sampleDirs_HBAO[0] != Vector4.zero))
             return;
         // 1 0 1 0 1 0 1 0 1
         // 0 0 0 0 0 0 0 0 0
@@ -183,35 +192,34 @@ public class PostEffect_AO : MonoBehaviour
         //应该调整顺序 尽量cache hit
         // 从(4,-2)逆时针开始
         Vector2[] dirs = new Vector2[] {
-            new Vector2(4.0f,-2.0f).normalized,
-            new Vector2(4.0f,0.0f).normalized,
-            new Vector2(4.0f,2.0f).normalized,
+            //new Vector2(4.0f,-2.0f).normalized,
+            //new Vector2(4.0f,0.0f).normalized,
+            //new Vector2(4.0f,2.0f).normalized,
 
             new Vector2(4.0f,4.0f).normalized,
 
-            new Vector2(2.0f,4.0f).normalized,
+            //new Vector2(2.0f,4.0f).normalized,
             new Vector2(0.0f,4.0f).normalized,
-            new Vector2(-2.0f,4.0f).normalized,
+            //new Vector2(-2.0f,4.0f).normalized,
 
-            new Vector2(-4.0f,4.0f).normalized,
+            //new Vector2(-4.0f,4.0f).normalized,
 
-            new Vector2(-4.0f,2.0f).normalized,
-            new Vector2(-4.0f,0.0f).normalized,
-            new Vector2(-4.0f, -2.0f).normalized,
+            //new Vector2(-4.0f,2.0f).normalized,
+            //new Vector2(-4.0f,0.0f).normalized,
+            //new Vector2(-4.0f, -2.0f).normalized,
 
             new Vector2(-4.0f,-4.0f).normalized,
 
             new Vector2(-2.0f,-4.0f).normalized,
-            new Vector2(0.0f,-4.0f).normalized,
-            new Vector2(2.0f,-4.0f).normalized,
+            //new Vector2(0.0f,-4.0f).normalized,
+            //new Vector2(2.0f,-4.0f).normalized,
 
-            new Vector2(4.0f,-4.0f).normalized
+            //new Vector2(4.0f,-4.0f).normalized
         };
         sampleDirs_HBAO = new Vector4[dirs.Length / 2];
         for (int i = 0; i < dirs.Length; i+=2)
         {
             sampleDirs_HBAO[i / 2] = new Vector4(dirs[i].x, dirs[i].y, dirs[i + 1].x, dirs[i + 1].y);
-            Debug.Log("df:" + sampleDirs_HBAO[i / 2]);
         }
     }
 }
