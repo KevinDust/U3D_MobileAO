@@ -3,18 +3,18 @@
     Properties
     {
         _MainTex ("Texture", 2D) = "white" {}
-    }
-    SubShader
-    {
-        // No culling or depth
-        Cull Off ZWrite Off ZTest Always
+	}
+		SubShader
+	{
+		// No culling or depth
+		Cull Off ZWrite Off ZTest Always
 
-        Pass
-        {
-            CGPROGRAM
-            #pragma vertex vert
-            #pragma fragment frag
-
+		Pass
+		{
+			CGPROGRAM
+			#pragma vertex vert
+			#pragma fragment frag
+			#pragma shader_feature _FindHorizonal
             #include "UnityCG.cginc"
 
             struct appdata
@@ -140,7 +140,7 @@
             }
 
 
-            #define _SampleNum 4
+            #define _SampleNum 16
             
 			float hash(float2 p)
 			{
@@ -150,7 +150,8 @@
 				//return fract(sin(dot(p, vec2(1.0,113.0)))*43758.5453123);
 			}
 
-            float raymarchAO(float2 sampleDir, float2 uv,float3 dPdu,float3 dpdv,float viewDepth,float3 viewPos){
+			//积分
+            float raymarchAO_Integral(float2 sampleDir, float2 uv,float3 dPdu,float3 dpdv,float viewDepth,float3 viewPos){
                 float ao = 0;
                 //view space
                 //圆采样的 方向 按固定方向
@@ -165,7 +166,7 @@
 				
 				//viewSpace
 				float4 stepSizeH = mul(Matrix_P, float4(stepSizeView.x, stepSizeView.y, -viewDepth, 1));	//viewspace的depth是反的
-				float2 stepSize = stepSizeH.xy / stepSizeH.w * _Radius;	//-1,1的方向 正好是我们需要的
+				float2 stepSize = stepSizeH.xy / stepSizeH.w * 1;	//-1,1的方向 正好是我们需要的
 				float2 minStepSize = float2(1.0f / _ScreenParams.x, 1.0f / _ScreenParams.y)*_MinStepPixelNum;
 				stepSize = normalize(stepSize) *max(minStepSize, abs(stepSize));	//最少跨距一个像素
 						
@@ -194,7 +195,6 @@
                     //Phi = H - T
                     //cos(Phi)dPhi  = sinPHI0-sinPHI1 = sin(H0-T) - sin(H1-T) =sin(H0)-sin(T) - (sin(H1)-sin(T)) = sin(H0)-sin(H1)    //cos～=1
 					float3 H = (viewPos_Si - viewPos);
-					//H = float3(stepSizeV.x * s,stepSizeV.y * s,-depth_Si + viewDepth);
 					float sinH = H.z / length(H);
                     if (sinH > lastSinH) {
 						ao += (sinH - lastSinH) *weight(length(H) / _StepRadius)*_Intensity;// *(lastSinH < (_MinDepth + _Bias) ? 0 : 1);
@@ -204,6 +204,59 @@
                 }   
                 return ao;
             }
+			//寻找最大的horizon
+			float raymarchAO_FindHorizonal(float2 sampleDir, float2 uv, float3 dPdu, float3 dpdv, float viewDepth, float3 viewPos) {
+				float ao = 0;
+				//view space
+				//圆采样的 方向 按固定方向
+				float2 sampleDir_V = normalize(sampleDir* _ViewLightDir);
+
+				//(float4(sampleDir_V0.xy,viewDepth,1)-float4(sampleDir_V1.xy,viewDepth,1)) * 2Near/(r-l) = (float4(uvoffset0*viewDepth,?,viewDepth) - float4(uvoffset1*viewDepth,?,viewDepth));
+				//sampleDir_V * Radius * 2Near/(r-l)【常量】 = uvOffset * viewDepth; 
+				//sampleDir_V * _StepRadius = uvOffset * viewDepth;
+
+				//根据radius 计算 step size；
+				float2 stepSizeView = sampleDir_V * _StepRadius / _StepNum;
+
+				//viewSpace
+				float4 stepSizeH = mul(Matrix_P, float4(stepSizeView.x, stepSizeView.y, -viewDepth, 1));	//viewspace的depth是反的
+				float2 stepSize = stepSizeH.xy / stepSizeH.w * 1;	//-1,1的方向 正好是我们需要的
+				float2 minStepSize = float2(1.0f / _ScreenParams.x, 1.0f / _ScreenParams.y)*_MinStepPixelNum;
+				stepSize = normalize(stepSize) *max(minStepSize, abs(stepSize));	//最少跨距一个像素
+
+				float2 stepSizeNV = float2(stepSize.x*Matrix_I_P[0][0], stepSize.y*Matrix_I_P[1][1]);
+				float3 T = normalize(stepSizeNV.x * dPdu + stepSizeNV.y * dpdv);// +_Bias * vnormal;
+
+
+				////imageSpace
+				//float2 stepSizeImage = sampleDir_V;
+				//stepSize = stepSizeImage * _Radius / _StepNum;
+				//stepSize = normalize(stepSize) *max(minStepSize, abs(stepSize));	//最少跨距一个像素
+
+				//float2 stepSizeV = float2(stepSize.x*Matrix_I_P[0][0], stepSize.y*Matrix_I_P[1][1]);
+				//
+				//T = normalize(stepSizeV.x * dPdu + stepSizeV.y * dpdv);
+
+				float sinT = T.z + _Bias * viewDepth;
+				float2 maxSinH_LH = float2(sinT,0);
+				//raymarch
+				for (int s = 1; s <= _StepNum; s++) {
+					//snapUV+ jitter                   
+					float jitter = hash(uv*s);
+					float2 uv_s = snapUVToCenter(uv + stepSize * (s + jitter));
+					float depth_Si = GetDepth(uv_s);
+					float3 viewPos_Si = depthToView(depth_Si, uv_s);
+					//Phi = H - T
+					//cos(Phi)dPhi  = sinPHI0-sinPHI1 = sin(H0-T) - sin(H1-T) =sin(H0)-sin(T) - (sin(H1)-sin(T)) = sin(H0)-sin(H1)    //cos～=1
+					float3 H = (viewPos_Si - viewPos);
+					float sinH = H.z / length(H);
+					maxSinH_LH = sinH>maxSinH_LH.x ? float2(sinH, length(H)) : maxSinH_LH;
+					//return ao;
+				}
+				float atten = 1.0 / (1 + maxSinH_LH.y);
+				ao = saturate((maxSinH_LH.x - sinT) *atten)*_Intensity;// *(lastSinH < (_MinDepth + _Bias) ? 0 : 1);
+				return ao;
+			}
            
             
             fixed4 frag (v2f i) : SV_Target
@@ -245,15 +298,20 @@
                 
                 float ao = 0;
                 for (int n = 0; n < _SampleNum/2; n++) {
-                    ao+=raymarchAO(_SampleDirArray[n].xy,i.uv, dPdu, dPdv, viewDepth, viewPos);
-					ao+=raymarchAO(_SampleDirArray[n].zw,i.uv, dPdu, dPdv, viewDepth, viewPos);
+#if _FindHorizonal
+                    ao+= raymarchAO_FindHorizonal(_SampleDirArray[n].xy,i.uv, dPdu, dPdv, viewDepth, viewPos);
+					ao+= raymarchAO_FindHorizonal(_SampleDirArray[n].zw,i.uv, dPdu, dPdv, viewDepth, viewPos);
+#else
+					ao += raymarchAO_Integral(_SampleDirArray[n].xy, i.uv, dPdu, dPdv, viewDepth, viewPos);
+					ao += raymarchAO_Integral(_SampleDirArray[n].zw, i.uv, dPdu, dPdv, viewDepth, viewPos);
+#endif
                 }
 				float luminance = Luminance(col.rgb)*_AOColor.a;
 				//return luminance;
 				//ao = min(luminance, ao);
 				float3 aoC = lerp(_AOColor.rgb, 1.0, luminance);
 				ao = (1 - pow(ao / _SampleNum, 1));
-				col.rgb *= lerp(aoC,1,ao);// lerp(col.rgb, ao*col.rgb, luminance);
+				col.rgb = lerp(aoC,1,ao);// lerp(col.rgb, ao*col.rgb, luminance);
                 return col;
             }
             ENDCG

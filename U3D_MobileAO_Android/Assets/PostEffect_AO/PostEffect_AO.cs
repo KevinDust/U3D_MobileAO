@@ -221,5 +221,6 @@ public class PostEffect_AO : MonoBehaviour
         {
             sampleDirs_HBAO[i / 2] = new Vector4(dirs[i].x, dirs[i].y, dirs[i + 1].x, dirs[i + 1].y);
         }
+        
     }
 }
