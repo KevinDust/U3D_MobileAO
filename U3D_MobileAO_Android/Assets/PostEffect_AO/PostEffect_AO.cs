@@ -8,13 +8,17 @@ public class PostEffect_AO : MonoBehaviour
     public enum AOType
     {
         SSAO = 0,
-        HBAO = 1
+        HBAO = 1,
+        HBAO_Plus = 2,
+        SSDO =3,
+        GTAO = 4
     }
     public AOType _AOType;
     private AOType oldType;
     private Material _curAOMat;
     public Material hbaoMat;
     public Material ssaoMat;
+    public Material hbaoPlusMat;
     private Camera _cam;
 
     [Header("------SSAO------")]
@@ -32,7 +36,10 @@ public class PostEffect_AO : MonoBehaviour
 
     [Range(1, 30)]
     public int sampleNum = 10;
+    private int oldSampleNum = -1;
+
     [Header("------HBAO------")]
+    public bool findMaxHorizonalAngle = false;
     [Range(1, 30)]
     public int stepNum = 10;
     public float radiusHBAO = 1;
@@ -51,12 +58,35 @@ public class PostEffect_AO : MonoBehaviour
 
     [Range(0, 2)]
     public float bias2HBAO = 0.5f;
-
-[Range(1, 10)]
+    [Range(0.1f, 10)]
+    public float _NoiseTexSize_HBAO = 1;
+    [Range(1, 10)]
     public float attenuationHBAO = 2; //衰减系数
 
+    [Header("------HBAO-Plus------")]
+    [Range(1, 30)]
+    public int stepNum_Plus = 10;
 
-    private int oldSampleNum = -1;
+
+    public float radius_Plus = 1;
+
+    [Range(0, 1)]
+    public float stepRadius_Plus = 1;
+
+    [Range(0, 2)]
+    public float intensity_Plus = 1;	//ao亮度
+
+    [Range(1, 5)]
+    public int minStepPixelNum_Plus = 1;
+
+    [Range(0, 2)]
+    public float bias_Plus = 0.3f;    //减少self shadowing
+    [Range(0.1f,10)]
+    public float _NoiseTexSize_Plus = 1;
+
+    [Range(1, 10)]
+    public float attenuation_Plus = 2; //衰减系数
+
     // Start is called before the first frame update
     void Start()
     {
@@ -88,8 +118,15 @@ public class PostEffect_AO : MonoBehaviour
                 break;
             case AOType.HBAO:
                 GenerateSampleDir_HBAO();
+                GenerateNoiseTex_Plus();
                 _curAOMat = hbaoMat;
                 _cam.depthTextureMode = DepthTextureMode.Depth;
+                break;
+            case AOType.HBAO_Plus:
+                GenerateNoiseTex_Plus();
+                _curAOMat = hbaoPlusMat;
+                _cam.depthTextureMode = DepthTextureMode.Depth;
+
 
                 break;
         }
@@ -103,13 +140,22 @@ public class PostEffect_AO : MonoBehaviour
             InitAOData();
             oldType = _AOType;
         }
+        if (oldsampleDirNum != sampleDirNum)
+        {
+            GenerateSampleDir_HBAO();
+            oldsampleDirNum = sampleDirNum; 
+        }
     }
     public Transform Light;
     public Color aoColor;
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         _curAOMat.SetFloat("_Intensity", intensity);
-
+        Vector3 lightDir = Vector3.one;
+        if (Light != null)
+        {
+            lightDir = _cam.worldToCameraMatrix.MultiplyVector(Light.forward);
+        }
 
         switch (_AOType)
         {
@@ -145,13 +191,43 @@ public class PostEffect_AO : MonoBehaviour
                 _curAOMat.SetVectorArray("_SampleDirArray", sampleDirs_HBAO);
                 _curAOMat.SetFloat("_Intensity", intensityHBAO);
                 _curAOMat.SetFloat("_MinStepPixelNum", minStepPixelNumHBAO);
-                Vector3 lightDir = Vector3.one;
-                if (Light != null)
-                {
-                    lightDir = _cam.worldToCameraMatrix.MultiplyVector(Light.forward);
-                }
+
                 _curAOMat.SetVector("_ViewLightDir", lightDir);
                 _curAOMat.SetColor("_AOColor", aoColor);
+                _curAOMat.SetTexture("_NoiseTex", noiseTex_Plus);
+                _curAOMat.SetInt("_SampleDirNum", sampleDirNum);
+                _curAOMat.SetFloat("_NoiseTexSize", _NoiseTexSize_HBAO);
+
+                if (findMaxHorizonalAngle) {
+                    _curAOMat.EnableKeyword("_FindHorizonal");
+                }
+                else
+                    _curAOMat.DisableKeyword("_FindHorizonal");
+
+                Graphics.Blit(source, destination, _curAOMat);
+
+                break;
+            case AOType.HBAO_Plus:
+
+                _curAOMat.SetInt("_StepNum", stepNum_Plus);
+                _curAOMat.SetFloat("_StepRadius", stepRadius_Plus);
+
+                _curAOMat.SetFloat("_Radius", radius_Plus);
+                _curAOMat.SetFloat("_Bias", bias_Plus);
+                
+
+                _curAOMat.SetFloat("_Attenuation", attenuation_Plus);
+
+                _curAOMat.SetMatrix("Matrix_I_P", GL.GetGPUProjectionMatrix(_cam.projectionMatrix, false).inverse);
+                _curAOMat.SetMatrix("Matrix_P", (_cam.projectionMatrix));
+                _curAOMat.SetFloat("_Intensity", intensity_Plus);
+                _curAOMat.SetFloat("_MinStepPixelNum", minStepPixelNum_Plus);
+                _curAOMat.SetVector("_ViewLightDir", lightDir);
+                _curAOMat.SetTexture("_NoiseTex", noiseTex_Plus);
+                _curAOMat.SetColor("_AOColor", aoColor);
+                _curAOMat.SetInt("_SampleDirNum", sampleDirNum);
+                _curAOMat.SetFloat("_NoiseTexSize", _NoiseTexSize_Plus);
+                
                 Graphics.Blit(source, destination, _curAOMat);
 
                 break;
@@ -174,6 +250,35 @@ public class PostEffect_AO : MonoBehaviour
         }
         Debug.Log("Set array");
     }
+
+    public Texture2D noiseTex_Plus;
+    private const int NoiseTexSize = 64;
+    [Range(1,30)]
+    public int sampleDirNum =1;
+    private int oldsampleDirNum = -1;
+    private void GenerateNoiseTex_Plus()
+    {
+        Debug.Log("rebuild noise");
+        noiseTex_Plus = new Texture2D(NoiseTexSize, NoiseTexSize, TextureFormat.RGB24, false, true);
+        noiseTex_Plus.filterMode = FilterMode.Point;
+        noiseTex_Plus.wrapMode = TextureWrapMode.Repeat;
+        int z = 0;
+        for (int x = 0; x < NoiseTexSize; ++x)
+        {
+            for (int y = 0; y < NoiseTexSize; ++y)
+            {
+                //unity 随机
+                float r1 = Random.Range(0.0f, 1.0f);
+                float r2 = UnityEngine.Random.Range(0.0f, 1.0f);
+                float angle = 2.0f * Mathf.PI * r1 / sampleDirNum;
+                Color color = new Color(Mathf.Cos(angle), Mathf.Sin(angle), r2);
+                noiseTex_Plus.SetPixel(x, y, color);
+            }
+        }
+        noiseTex_Plus.Apply();
+    }
+
+
     private Vector4[] sampleDirs_HBAO = null;
     private void GenerateSampleDir_HBAO()
     {
@@ -192,35 +297,34 @@ public class PostEffect_AO : MonoBehaviour
         //应该调整顺序 尽量cache hit
         // 从(4,-2)逆时针开始
         Vector2[] dirs = new Vector2[] {
-            //new Vector2(4.0f,-2.0f).normalized,
-            //new Vector2(4.0f,0.0f).normalized,
-            //new Vector2(4.0f,2.0f).normalized,
+            new Vector2(4.0f,-2.0f).normalized,
+            new Vector2(4.0f,0.0f).normalized,
+            new Vector2(4.0f,2.0f).normalized,
 
             new Vector2(4.0f,4.0f).normalized,
 
-            //new Vector2(2.0f,4.0f).normalized,
+            new Vector2(2.0f,4.0f).normalized,
             new Vector2(0.0f,4.0f).normalized,
-            //new Vector2(-2.0f,4.0f).normalized,
+            new Vector2(-2.0f,4.0f).normalized,
 
-            //new Vector2(-4.0f,4.0f).normalized,
+            new Vector2(-4.0f,4.0f).normalized,
 
-            //new Vector2(-4.0f,2.0f).normalized,
-            //new Vector2(-4.0f,0.0f).normalized,
-            //new Vector2(-4.0f, -2.0f).normalized,
+            new Vector2(-4.0f,2.0f).normalized,
+            new Vector2(-4.0f,0.0f).normalized,
+            new Vector2(-4.0f, -2.0f).normalized,
 
             new Vector2(-4.0f,-4.0f).normalized,
 
             new Vector2(-2.0f,-4.0f).normalized,
-            //new Vector2(0.0f,-4.0f).normalized,
-            //new Vector2(2.0f,-4.0f).normalized,
+            new Vector2(0.0f,-4.0f).normalized,
+            new Vector2(2.0f,-4.0f).normalized,
 
-            //new Vector2(4.0f,-4.0f).normalized
+            new Vector2(4.0f,-4.0f).normalized
         };
         sampleDirs_HBAO = new Vector4[dirs.Length / 2];
         for (int i = 0; i < dirs.Length; i+=2)
         {
             sampleDirs_HBAO[i / 2] = new Vector4(dirs[i].x, dirs[i].y, dirs[i + 1].x, dirs[i + 1].y);
         }
-        
     }
 }

@@ -23,12 +23,15 @@
             {
                 float4 vertex : POSITION;
                 float2 uv : TEXCOORD0;
+				float3 normal : NORMAL;
+
             };
 
             struct v2f
             {
                 float4 vertex : SV_POSITION;
 				float3 viewPos : TEXCOORD0;
+				float3 normal : TEXCOORD1;
             };
 
             sampler2D _MainTex;
@@ -39,16 +42,20 @@
                 v2f o;
                 o.vertex = UnityObjectToClipPos(v.vertex);
 				o.viewPos = mul(UNITY_MATRIX_MV, v.vertex).xyz;
+				o.normal = v.normal;
                 return o;
             }
 
-            fixed4 frag (v2f i) : SV_Target
+            float4 frag (v2f i) : SV_Target
             {
 				float3 dPdu = ddx(i.viewPos);
 				float3 dPdv = ddy(i.viewPos);
+				float3 viewN = mul(UNITY_MATRIX_MV,float4(i.normal,1)).xyz;
+				return float4(normalize(cross(dPdu, dPdv)), 1);
+				return float4(viewN,1);
                 //return float4(i.viewPos,1);
 				//return float4(dPdu, 1)*100;
-                return float4(normalize(0.5*dPdu+ 0.5*dPdv),1);
+                //return float4(normalize(0.5*dPdu+ 0.5*dPdv),1);
             }
             ENDCG
         }

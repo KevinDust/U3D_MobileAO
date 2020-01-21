@@ -7,8 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: ViewPosTest
-  m_Shader: {fileID: 4800000, guid: 0d5039eac382c4f468d142a994a61142, type: 3}
+  m_Name: DepthCopy
+  m_Shader: {fileID: 4800000, guid: bce538ee1adf12945aa0a3bd00672b5b, type: 3}
   m_ShaderKeywords: 
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 0

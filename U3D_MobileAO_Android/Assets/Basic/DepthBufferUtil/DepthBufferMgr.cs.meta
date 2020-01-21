@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: d3b14e697f3c2c54e8d49d60429a9212
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - depth: {instanceID: 0}
+  - depth2: {instanceID: 0}
+  - color: {instanceID: 0}
+  - finalDepth: {instanceID: 0}
+  - cam: {instanceID: 0}
+  - PostEffectsMaterial: {fileID: 2100000, guid: e9c3e1c4049263240a1c93bc6751e53e,
+      type: 2}
+  - testMat: {fileID: 2100000, guid: d8c1b5d18357b0c4da8f4c84034e6e0c, type: 2}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
